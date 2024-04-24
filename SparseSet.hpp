@@ -46,5 +46,14 @@ public:
 		dense.pop_back();
 	}
 
+	const std::vector<TYPE>& GetDense() const
+	{
+		return dense;
+	}
+	const std::vector<TYPE>& GetSparse() const
+	{
+		return sparse;
+	}
+
 };
 #endif
