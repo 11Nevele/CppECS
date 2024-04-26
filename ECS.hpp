@@ -239,18 +239,13 @@ namespace ecs
 		}
 
 		template <class Type>
-		Type& GetComponent(Entity entity)
+		Type& Get(Entity entity)
 		{
 			constexpr ComponentID id = ComponentSetting::template GetID<Type>();
 			auto& cInfo = std::get<id>(curWorld.componentPools);
 			return cInfo.pool.objects[curWorld.entityPool.objects[entity][id]];
 		}
 
-		template <class Type>
-		Type& operator [](Entity entity)
-		{
-			return GetComponent<Type>(entity);
-		}
 	};
 
 	template <class ComponentSetting, class ResourceSetting>

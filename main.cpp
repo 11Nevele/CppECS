@@ -24,11 +24,13 @@ using curCSetting = ecs::Settings<int, std::string, MyClass>;
 using curRSetting = ecs::Settings<Timer>;
 using curWorld = ecs::World<curCSetting, curRSetting>;
 
-void Test(ecs::Queryer<curCSetting, curRSetting>& queryer)
+void Test(ecs::Queryer<curCSetting, curRSetting>& queryer, ecs::Commands<curCSetting, curRSetting> commands)
 {
 	for (auto i : queryer.GetEntities<MyClass>())
 	{
 		std::cout << i << " ";
+		std::cout << commands.Get<MyClass>(i).name << " ";
+		
 	}
 
 	std::cout << "\n--------------------------\n";
@@ -90,13 +92,13 @@ int main()
 		.CreateEntity(12, std::string("312"), MyClass());
 		;
 
-	Test(queryer);
+	Test(queryer, commands);
 
 	commands.RemoveEntity(0)
 		.RemoveEntity(7)	
 		.RemoveEntity(9);
 
-	Test(queryer);
+	Test(queryer, commands);
 
 	Timer& tResource = commands.GetResource<Timer>();
 	
