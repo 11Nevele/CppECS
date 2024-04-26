@@ -4,311 +4,294 @@
 #include <algorithm>
 #include <cassert>
 #include <unordered_map>
-#include <any>
 #include "SparseSet.hpp"
+#include <tuple>
+#define MAX_COMPONENTS UINT32_MAX
+
 namespace ecs
 {
-	class COMPONENT{};
-	class RESOURCE{};
+
+
+	class COMPONENT {};
+	class RESOURCE {};
 	using Entity = uint32_t;
 	using ResourceID = uint32_t;
 	using ComponentID = uint32_t; //each type of component has a unique ID
+	using ComponentIndex = uint32_t; //a index within each type of component
 
-	template <class TYPE>
-	class IndexGetter final //this class is used to get the index of a component
+
+	template <typename Type>
+	struct Pool final
 	{
-	private:
-		inline static uint32_t index;
 	public:
-		template <class T>
-		inline static uint32_t GetIndex()
+		std::vector<Type> objects;
+		std::vector<ComponentIndex> cache;
+
+		ComponentIndex CreateObject()
 		{
-			static uint32_t id = index++;
-			return id;
+			ComponentIndex index;
+			if (cache.empty())
+			{
+				index = objects.size();
+				objects.emplace_back();
+			}
+			else
+			{
+				index = cache.back();
+				cache.pop_back();
+			}
+			return index;
+		}
+		void DestroyObject(ComponentID index)
+		{
+			cache.push_back(index);
 		}
 	};
 
-	//this class is used to get the index of a entity
-	class EntityIndexGetter final 
+
+	template <typename Type, typename... Other>
+	struct ComponentInfo final
 	{
-	private:
-		inline static Entity index;
-	public:
-		static Entity GetIndex()
-		{
-			Entity id = index++;
-			return id;
-		}	
+		Pool<Type> pool;
+		SparseSet<Entity> entities;
 	};
 
+	template<typename... TYPE_LIST>
+	struct Settings
+	{
+
+	public:
+		//using test = Pool<TYPE_LIST...>;myStruct
+
+		using PoolsList = std::tuple<ComponentInfo<TYPE_LIST>...>;
+		using TupleList = std::tuple<TYPE_LIST...>;
+
+		template <class Target>
+		static constexpr bool HasType()
+		{
+			return DoHasType<Target, TYPE_LIST...>();
+		}
+
+		static constexpr uint32_t Size()
+		{
+			return sizeof...(TYPE_LIST);
+		}
+
+		template <class Target>
+		static constexpr uint32_t GetID()
+		{
+			static_assert(HasType<Target>(), "Type not found in the list");
+			return DoIndex<Target, TYPE_LIST...>();
+		}
+
+	private:
+		template <class Target, class Cur, class... Remains>
+		static constexpr bool DoHasType()
+		{
+			if constexpr (std::is_same<Target, Cur>{})
+				return true;
+			if constexpr (sizeof...(Remains) == 0)
+				return false;
+			else
+				return DoHasType<Target, Remains...>();
+		}
+
+		template <class Target, class Cur, class... Remains>
+		static constexpr uint32_t DoIndex()
+		{
+			if constexpr (std::is_same<Target, Cur>{})
+				return 0;
+			else
+				return 1 + DoIndex<Target, Remains...>();
+		}
+	};
+
+
+	template <class ComponentSetting, class ResourceSetting>
 	class Commands;
-	class Resource;
+	template <class ComponentSetting, class ResourceSetting>
 	class Queryer;
 
+	template <class ComponentSetting, class ResourceSetting>
 	class World final
 	{
 	public:
 
 	private:
 		friend Commands;
-		friend Resource;
 		friend Queryer;
-		// stores instances of a type of component
-		
-		class Pool final 
-		{
-		public:
-			using Create = std::any(*)(void);
-			using Destroy = void(*)(std::any);
-			Pool(Create newCreate, Destroy newDestory): create(newCreate), destroy(newDestory) {}
-
-			std::any CreateObject()
-			{
-				std::any object = nullptr;
-				if (cache.size() > 0)
-				{
-					object = cache.back();
-					cache.pop_back();
-					objects.push_back(object);
-				}
-				else
-				{
-					object = create();
-					objects.push_back(object);
-				}
-				return object;
-			}
-			void DestoryObject(std::any target)
-			{
-				auto com = [&target](const std::any& a)
-				{ return std::any_cast<void*> (target) == std::any_cast<void*>(a); };
-				auto iter = std::find_if(objects.begin(), objects.end(), com);
-				if (iter != objects.end())
-				{
-					std::iter_swap(iter, objects.end() - 1);
-					cache.push_back(objects.back());
-					objects.pop_back();
-				}
-				else
-				{
-					assert(false);
-					
-				}
-			}
-		private:
+		friend Settings;
 
 
-			std::vector<std::any> objects;
-			std::vector<std::any> cache;
 
-			Create create;
-			Destroy destroy;
-		};
+		using ComponentPools = ComponentSetting::PoolsList;
+		using ResourceTuple = ResourceSetting::TupleList;
+		using EntityInfo = std::vector<ComponentIndex>;
+		using EntityPool = Pool<EntityInfo>;
 
-		class ComponentInfo
-		{
-		public:
-			Pool pool;//instance of the component
-			SparseSet<Entity> entities;//entities that have the component
-			ComponentInfo() : pool(nullptr, nullptr) {}
-			ComponentInfo(Pool::Create create, Pool::Destroy destroy) : pool(create, destroy) {}
-		};
-		class ResourceInfo final
-		{
-		public:
-			std::any resource;
+		ComponentPools componentPools;
+		ResourceTuple resourceTuple;
+		EntityPool entityPool;
 
-			using Create = std::any(*)(void);
-			using Destroy = void(*)(std::any);
-
-			Create create;
-			Destroy destroy;
-
-			ResourceInfo(Create newCreate, Destroy newDestroy) : create(newCreate), destroy(newDestroy)
-			{
-				assert(newCreate);
-				assert(newCreate);
-			}
-			ResourceInfo() : create(nullptr), destroy(nullptr) {}
-		};
-
-		using ComponentMap = std::unordered_map<ComponentID, ComponentInfo>; 
-		using ResourceMap = std::unordered_map<ResourceID, ResourceInfo>;
-
-		using ComponentStorage = std::unordered_map<ComponentID, std::any>;
-
-		//used to link a type of component to its info
-		ComponentMap componentMap;
-		ResourceMap resourceMap;
-		
-		//link the entity to componentsStorage
-		std::unordered_map<Entity, ComponentStorage> entitysMap;
 	};
-
+	
 	//Do operations in the world
+	template <class ComponentSetting, class ResourceSetting>
 	class Commands final
 	{
 	private:
+		using World = World<ComponentSetting, ResourceSetting>;
 		World& curWorld;
 
-		template<class TYPE, class... ARGS>
-		void AddComponent(Entity entity, const TYPE& component, const ARGS&... remain)
+		template<class Type, class... Remains>
+		void AddComponent(Entity entity, World::EntityInfo& entityInfo, const Type& component, const Remains&... remain)
 		{
-			ComponentID index = IndexGetter<COMPONENT>::GetIndex<TYPE>();
-			auto it = curWorld.componentMap.find(index);
-			if (it == curWorld.componentMap.end())
+			constexpr ComponentID id = ComponentSetting::template GetID<Type>();
+			ComponentInfo<Type>& cInfo = std::get<id>(curWorld.componentPools);
+			ComponentIndex index = cInfo.pool.CreateObject();
+			cInfo.pool.objects[index] = component;
+			cInfo.entities.Add(entity);
+			entityInfo[id] = index;
+
+			if constexpr(sizeof...(Remains) > 0)
+				AddComponent(entity, entityInfo, remain...);
+		}
+
+		template<class Type, class... Remains>
+		void RemoveComponent(Entity entity, World::EntityInfo& entityInfo)
+		{
+			constexpr ComponentID id = ComponentSetting::template GetID<Type>();
+			assert(entityInfo[id] != MAX_COMPONENTS);
+
+			ComponentInfo<Type>& cInfo = std::get<id>(curWorld.componentPools);
+			cInfo.pool.DestroyObject(entityInfo[id]);
+			cInfo.entities.Remove(entity);
+			entityInfo[id] = MAX_COMPONENTS;
+
+			if constexpr(sizeof...(Remains) > 0)
+				RemoveComponent<Remains...>(entity, entityInfo);
+		}
+
+		template<std::size_t curID>
+		void RemoveAllComponent(Entity entity, World::EntityInfo& entityInfo)
+		{
+			//auto it = entityInfo.find(curID);
+			if (entityInfo[curID] != MAX_COMPONENTS)
 			{
-				curWorld.componentMap.emplace(index, World::ComponentInfo(
-					[]() -> std::any {return (new TYPE); },
-					[](std::any target) {delete std::any_cast<TYPE*>(target); }
-					)
-				);
+				auto& cInfo = std::get<curID>(curWorld.componentPools);
+				cInfo.pool.DestroyObject(entityInfo[curID]);
+				cInfo.entities.Remove(entity);
 			}
-			World::ComponentInfo& curComponentInfo = curWorld.componentMap[index];
-			TYPE* element = std::any_cast<TYPE*>(curComponentInfo.pool.CreateObject());
-			*element = component;
-			curComponentInfo.entities.Add(entity);
-			curWorld.entitysMap[entity][index] = element;
-			if constexpr(sizeof...(remain) != 0)
+			if constexpr (curID < ComponentSetting::Size() - 1)
 			{
-				AddComponent(entity, remain...);
+				RemoveAllComponent <curID + 1>(entity, entityInfo);
 			}
 		}
-		
 	public:
-		Commands(World& newWorld): curWorld(newWorld){}
+		Commands(World& newWorld) : curWorld(newWorld) {}
 
 		template <class... ARGS>
 		Commands& CreateEntity(const ARGS&... args)
 		{
-			Entity entity = EntityIndexGetter::GetIndex();
-			AddComponent(entity, args...);
+			Entity entity = curWorld.entityPool.CreateObject();
+
+			if(curWorld.entityPool.objects[entity].size() == 0)
+				curWorld.entityPool.objects[entity].resize(ComponentSetting::Size(), MAX_COMPONENTS);
+			AddComponent(entity, curWorld.entityPool.objects[entity], args...);
+			return *this;
+		}
+
+		template <class... ARGS>
+		Commands& AddComponent(Entity entity, const ARGS&... args)
+		{
+			AddComponent(entity, curWorld.entityPool.objects[entity], args...);
 			return *this;
 		}
 
 		Commands& RemoveEntity(Entity entity)
 		{
-			auto it = curWorld.entitysMap.find(entity);
-			assert(it != curWorld.entitysMap.end());
-			for (auto& t : it->second)
-			{
-				const ComponentID& componentID = t.first;
-				auto& component = t.second;
-				World::ComponentInfo& info = (curWorld.componentMap[componentID]);
-				info.entities.Remove(entity);
-				info.pool.DestoryObject(component);
-			}
-			curWorld.entitysMap.erase(it);
+			auto& entityInfo = curWorld.entityPool.objects[entity];
+			RemoveAllComponent<0>(entity, entityInfo);
+			curWorld.entityPool.DestroyObject(entity);
 			return *this;
 		}
 
-		template <class TYPE>
-		Commands& CreateResource(const TYPE& object)
+		template <class... ARGS>
+		Commands& RemoveComponent(Entity entity)
 		{
-			ResourceID index = IndexGetter<RESOURCE>::GetIndex<TYPE>();
-			auto it = curWorld.resourceMap.find(index);
-			assert(it == curWorld.resourceMap.end());
-			curWorld.resourceMap.emplace(index,
-				World::ResourceInfo(
-					[]() -> std::any {return (new TYPE); },
-					[](std::any target) {delete std::any_cast<TYPE*>(target); }
-				)
-			);
-			auto& info = curWorld.resourceMap.find(index)->second;
-			info.resource = info.create();
-			*std::any_cast<TYPE*>(info.resource) = object;
+			RemoveComponent<ARGS...>(entity, curWorld.entityPool.objects[entity]);
 			return *this;
 		}
 
-		template <class TYPE>
-		Commands& DestroyResource()
+		template <class Type>
+		Commands& CreateResource(const Type& type)
 		{
-			ResourceID index = IndexGetter<RESOURCE>::GetIndex<TYPE>();
-			auto it = curWorld.resourceMap.find(index);
-			assert(it != curWorld.resourceMap.end());
-
-			auto& info = it->second;
-			info.destroy(info.resource);
-			curWorld.resourceMap.erase(it);
+			constexpr ResourceID id = ResourceSetting::template GetID<Type>();
+			auto& resource = std::get<id>(curWorld.resourceTuple);
+			resource = type;
 			return *this;
 		}
 
-
-	};
-
-	class Resource final
-	{
-	private:
-		World & curWorld;
-	public:
-		Resource(World& newWorld) : curWorld(newWorld) {}
-		template <class TYPE>
-		TYPE& GetResource()
+		template <class Type>
+		Type& GetResource()
 		{
-			ResourceID index = IndexGetter<RESOURCE>::GetIndex<TYPE>();
-			auto it = curWorld.resourceMap.find(index);
-			assert(it != curWorld.resourceMap.end());
-			return *std::any_cast<TYPE*>(it->second.resource);
+			return std::get<ResourceSetting::template GetID<Type>()>(curWorld.resourceTuple);
 		}
-		template <class TYPE>
-		bool HasResource()
+
+		template <class Type>
+		Type& GetComponent(Entity entity)
 		{
-			ResourceID index = IndexGetter<RESOURCE>::GetIndex<TYPE>();
-			auto it = curWorld.resourceMap.find(index);
-			return it != curWorld.resourceMap.end();
+			constexpr ComponentID id = ComponentSetting::template GetID<Type>();
+			auto& cInfo = std::get<id>(curWorld.componentPools);
+			return cInfo.pool.objects[curWorld.entityPool.objects[entity][id]];
+		}
+
+		template <class Type>
+		Type& operator [](Entity entity)
+		{
+			return GetComponent<Type>(entity);
 		}
 	};
 
+	template <class ComponentSetting, class ResourceSetting>
 	class Queryer final
 	{
 	private:
-		World & curWorld;
-		
-		//Check if the entity has the all component
-		template <class TYPE, class... ARGS>
-		bool CheckEntity(Entity entity)
+		using World = World<ComponentSetting, ResourceSetting>;
+		World& curWorld;
+		 
+		template <class Cur, class... ARGS>
+		bool checkEntity(Entity entity, World::EntityInfo& entityInfo)
 		{
-			ComponentID index = IndexGetter<COMPONENT>::GetIndex<TYPE>();
-			auto it = curWorld.componentMap.find(index);
-			if (it == curWorld.componentMap.end() || !it->second.entities.Contains(entity))
-			{
+			constexpr ComponentID id = ComponentSetting::template GetID<Cur>();
+			if (entityInfo[id] == MAX_COMPONENTS)
 				return false;
-			}
-			if constexpr (sizeof...(ARGS) > 0)
-			{
-				return CheckEntity<ARGS...>(entity);
-			}
-			else
-			{
+			if constexpr (sizeof...(ARGS) == 0)
 				return true;
-			}
-			
+			else
+				return checkEntity<ARGS...>(entity, entityInfo);
 		}
+
+
+		template <class Type, class... ARGS>
+		struct front
+		{
+			using type = Type;
+		};
 	public:
 
 		Queryer(World& newWorld) : curWorld(newWorld) {}
-		template <class TYPE, class... ARGS>
+		template <class... ARGS>
 		std::vector<Entity> GetEntities()
 		{
 			std::vector<Entity> result;
-			ComponentID index = IndexGetter<COMPONENT>::GetIndex<TYPE>();
-			auto it = curWorld.componentMap.find(index);
-			if (it == curWorld.componentMap.end())
+			constexpr ComponentID id = ComponentSetting::template GetID<front<ARGS...>::type>();
+			auto& cInfo = std::get <id> (curWorld.componentPools);
+			const std::vector<Entity>& dense = cInfo.entities.GetDense();
+			for (const Entity& entity : dense)
 			{
-				return result;
-			}
-			auto& enetities = it->second.entities.GetDense();
-
-			for (auto& entity : enetities)
-			{
-				if constexpr (sizeof...(ARGS) > 0)
-				{
-					if (CheckEntity<ARGS...>(entity))
-					{
-						result.push_back(entity);
-					}
-				}
-				else
+				auto& entityInfo = curWorld.entityPool.objects[entity];
+				if (checkEntity<ARGS...>(entity, entityInfo))
 				{
 					result.push_back(entity);
 				}
@@ -319,4 +302,5 @@ namespace ecs
 }
 
 
-#endif // !ECS
+#endif 
+// !ECS
