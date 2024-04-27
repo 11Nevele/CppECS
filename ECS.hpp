@@ -116,22 +116,55 @@ namespace ecs
 	class World final
 	{
 	public:
+		using StartupSystem = void(*)(Commands<ComponentSetting, ResourceSetting>&);
+		using UpdateSystem = void(*)(Commands<ComponentSetting, ResourceSetting>&, Queryer<ComponentSetting, ResourceSetting>&);
+
+	private:
+		std::vector<StartupSystem> startupSystems;
+		std::vector<UpdateSystem> updateSystems;
+	public:
+		World& AddStartupSystem(StartupSystem sys)
+		{
+			startupSystems.push_back(sys);
+			return *this;
+		}
+		World& AddUpdateSystem(UpdateSystem sys)
+		{
+			updateSystems.push_back(sys);
+		    return *this;
+		}
+		void StartupUpdate()
+		{
+			Commands<ComponentSetting, ResourceSetting> commands(*this);
+			for (auto sys : startupSystems)
+				sys(commands);
+		}
+		void Update()
+		{
+			Commands<ComponentSetting, ResourceSetting> commands(*this);
+			Queryer<ComponentSetting, ResourceSetting> queryer(*this);
+			for (auto sys : updateSystems)
+				sys(commands, queryer);
+		}
 
 	private:
 		friend Commands;
 		friend Queryer;
 		friend Settings;
 
-
-
 		using ComponentPools = ComponentSetting::PoolsList;
 		using ResourceTuple = ResourceSetting::TupleList;
 		using EntityInfo = std::vector<ComponentIndex>;
 		using EntityPool = Pool<EntityInfo>;
 
+		
+
 		ComponentPools componentPools;
 		ResourceTuple resourceTuple;
 		EntityPool entityPool;
+
+		
+	
 
 	};
 	

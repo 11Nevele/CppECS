@@ -24,61 +24,13 @@ using curCSetting = ecs::Settings<int, std::string, MyClass>;
 using curRSetting = ecs::Settings<Timer>;
 using curWorld = ecs::World<curCSetting, curRSetting>;
 
-void Test(ecs::Queryer<curCSetting, curRSetting>& queryer, ecs::Commands<curCSetting, curRSetting> commands)
+using Commands = ecs::Commands<curCSetting, curRSetting>;
+using Queryer = ecs::Queryer<curCSetting, curRSetting>;
+using StartupSystem = curWorld::StartupSystem;
+using UpdateSystem = curWorld::UpdateSystem;
+
+void InitObjects(Commands& commands)
 {
-	for (auto i : queryer.GetEntities<MyClass>())
-	{
-		std::cout << i << " ";
-		std::cout << commands.Get<MyClass>(i).name << " ";
-		
-	}
-
-	std::cout << "\n--------------------------\n";
-
-	for (auto i : queryer.GetEntities<int>())
-	{
-		std::cout << i << " ";
-	}
-
-	std::cout << "\n--------------------------\n";
-
-	for (auto i : queryer.GetEntities<std::string>())
-	{
-		std::cout << i << " ";
-	}
-
-	std::cout << "\n--------------------------\n";
-
-	for (auto i : queryer.GetEntities<std::string>())
-	{
-		std::cout << i << " ";
-	}
-
-	std::cout << "\n--------------------------\n";
-
-	for (auto& i : queryer.GetEntities<std::string, int>())
-	{
-		std::cout << i << " ";
-	}
-
-	std::cout << "\n--------------------------\n";
-
-	for (auto& i : queryer.GetEntities<std::string, int, MyClass>())
-	{
-		std::cout << i << " ";
-	}
-
-	std::cout << "\n--------------------------\n";
-
-}
-int main()
-{
-	
-
-	curWorld world;
-	ecs::Commands commands(world);
-	ecs::Queryer queryer(world);
-
 	commands.CreateResource<Timer>(Timer(321));
 	commands.CreateEntity(MyClass())
 		.CreateEntity(MyClass("test"))
@@ -90,19 +42,37 @@ int main()
 		.CreateEntity(std::string("12"), 10)
 		.CreateEntity(11, std::string("12"))
 		.CreateEntity(12, std::string("312"), MyClass());
-		;
-
-	Test(queryer, commands);
-
-	commands.RemoveEntity(0)
-		.RemoveEntity(7)	
-		.RemoveEntity(9);
-
-	Test(queryer, commands);
-
-	Timer& tResource = commands.GetResource<Timer>();
 	
-	
+}
+
+void PrintObjects(Commands& commands, Queryer& queryer)
+{
+	for (auto& i : queryer.GetEntities<int>())
+	{
+		std::cout << i << ": " << commands.Get<int>(i) << std::endl;
+	}
+	std::cout << "\n-----------------------------\n";
+	for (auto& i : queryer.GetEntities<std::string>())
+	{
+		std::cout << i << ": " << commands.Get<std::string>(i) << std::endl;
+	}
+	std::cout << "\n-----------------------------\n";
+	for (auto& i : queryer.GetEntities<MyClass>())
+	{
+		std::cout << i << ": " << commands.Get<MyClass>(i).name << std::endl;
+	}
+	std::cout << "\n-----------------------------\n";
+}
+
+
+
+int main()
+{
+	curWorld world;
+	world.AddStartupSystem(InitObjects);
+	world.AddUpdateSystem(PrintObjects);
+	world.StartupUpdate();
+	world.Update();
 
 	
 	return 0;
